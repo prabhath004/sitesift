@@ -5,7 +5,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.schemas.common import ProjectId, ProjectType
+from app.schemas.common import ProjectId, ProjectType, ScreeningRunId
 
 # Spec §7 — the demo project's thresholds, and a sane default for any project
 # created without explicit criteria.
@@ -70,3 +70,19 @@ class ProjectRead(BaseModel):
     status: ProjectStatus
     created_at: datetime
     updated_at: datetime
+
+
+class ProjectDashboardItem(BaseModel):
+    """A project as the dashboard lists it.
+
+    The rollups are computed by the backend from the latest completed run. The
+    dashboard, the results table, and the site page must agree on them, and they
+    only can if one place derives them (spec §9.5).
+    """
+
+    project: ProjectRead
+    candidate_count: int
+    top_score: int | None
+    high_risk_finding_count: int
+    recommended_site_count: int
+    latest_screening_run_id: ScreeningRunId | None

@@ -7,7 +7,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api.deps import DbSession, ProjectDep
 from app.api.errors import database_error
 from app.models.project import Project
-from app.schemas.project import ProjectCreate, ProjectRead, ProjectStatus
+from app.schemas.project import ProjectCreate, ProjectDashboardItem, ProjectRead, ProjectStatus
+from app.services.results import build_project_dashboard
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -40,6 +41,16 @@ def create_project(payload: ProjectCreate, db: DbSession) -> Project:
 def list_projects(db: DbSession) -> list[Project]:
     """Newest first — the dashboard shows the most recent work at the top."""
     return list(db.scalars(select(Project).order_by(Project.created_at.desc())).all())
+
+
+@router.get("/dashboard", response_model=list[ProjectDashboardItem])
+def list_project_dashboard(db: DbSession) -> list[ProjectDashboardItem]:
+    """Projects with their candidate count, top score, and risk rollups.
+
+    Declared before ``/{project_id}`` so that "dashboard" is not parsed as a
+    project id.
+    """
+    return build_project_dashboard(db)
 
 
 @router.get("/{project_id}", response_model=ProjectRead)

@@ -23,7 +23,9 @@ from app.schemas.common import (
     ScreeningRunStatus,
     SiteScoreId,
 )
+from app.schemas.document import DocumentResponse
 from app.schemas.finding import FindingCategory, RiskFindingRead
+from app.schemas.project import ProjectRead
 from app.schemas.site import CandidateSiteRead
 
 
@@ -86,13 +88,22 @@ class ScreeningRunRead(BaseModel):
 
 
 class SiteScreeningResult(BaseModel):
-    """One ranked site, with everything needed to explain its result."""
+    """One ranked site, with everything needed to explain its result.
+
+    The counts and the next action are computed here rather than in the UI. They
+    are conclusions drawn from findings and a recommendation status, and the
+    backend is the only place allowed to draw them (CLAUDE.md, spec §9.1).
+    """
 
     site: CandidateSiteRead
     score: SiteScoreRead
     positive_signals: list[RiskFindingRead]
     risks: list[RiskFindingRead]
+    permitting_requirements: list[RiskFindingRead]
     missing_information: list[RiskFindingRead]
+    high_risk_finding_count: int
+    warning_count: int
+    recommended_next_action: str
 
 
 class ScreeningRunDetail(ScreeningRunRead):
@@ -106,13 +117,22 @@ class SiteDetail(BaseModel):
 
     ``score`` is ``None`` until a run has scored the site — an unscreened site is
     a normal state, not an error.
+
+    ``permitting_requirements`` are the document-derived findings for the site,
+    each carrying its evidence and its review status. They are listed separately
+    from ``risks`` because a permitting obligation is not a defect in the site,
+    and from ``missing_information`` because it is not an unknown.
     """
 
+    project: ProjectRead
     site: CandidateSiteRead
     score: SiteScoreRead | None
     positive_signals: list[RiskFindingRead]
     risks: list[RiskFindingRead]
+    permitting_requirements: list[RiskFindingRead]
     missing_information: list[RiskFindingRead]
+    documents: list[DocumentResponse]
+    recommended_next_action: str
 
 
 class WorkflowEventRead(BaseModel):

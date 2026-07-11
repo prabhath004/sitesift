@@ -1,9 +1,15 @@
-"""Risk findings — API contract additions proposed in docs/BACKEND_CONTRACT_NOTES.md.
+"""Risk findings — one shape for every source.
 
-``FindingCategory`` and ``FindingGroup`` are new enums. They are deliberately
-NOT in ``app/schemas/common.py``: that file is mirrored by ``frontend/types/api.ts``,
-which this branch does not own. The frontend mirror is specified in
-docs/BACKEND_CONTRACT_NOTES.md for whoever picks it up.
+``FindingCategory``, ``FindingGroup``, and ``RequirementCategory`` are mirrored in
+``frontend/types/api.ts`` and documented in ``docs/API_CONTRACT.md``.
+
+Integration note. Deterministic screening and document analysis each arrived with
+their own finding schema (``RiskFindingRead`` and ``DocumentFindingResponse``)
+over the same ``risk_findings`` table. They are reconciled into ``RiskFindingRead``
+here: the document-only fields are optional and stay ``None`` for deterministic
+findings, and ``evidence`` is a list that is empty for them. A document-derived
+finding without evidence is invalid and is never persisted (CLAUDE.md rule 2), so
+an empty list on a ``DOCUMENT`` finding cannot occur.
 """
 
 from datetime import datetime
@@ -19,6 +25,7 @@ from app.schemas.common import (
     RiskFindingId,
     ScreeningRunId,
 )
+from app.schemas.evidence import EvidenceResponse
 
 
 class FindingCategory(StrEnum):
@@ -40,11 +47,36 @@ class FindingGroup(StrEnum):
 
     Missing information is kept separate from confirmed risks: an absent input is
     not evidence of a problem, and the two must never be conflated in the UI.
+
+    ``REQUIREMENT`` was added at integration for document-derived permitting
+    requirements. Filing them under ``RISK`` would assert that "a conditional-use
+    permit is required" is a problem with the site, which it is not — it is an
+    obligation, and it gets its own list on the site page.
     """
 
     POSITIVE_SIGNAL = "positive_signal"
     RISK = "risk"
     MISSING_INFORMATION = "missing_information"
+    REQUIREMENT = "requirement"
+
+
+class RequirementCategory(StrEnum):
+    """The kind of permitting obligation a document-derived finding states.
+
+    Distinct from ``FindingCategory``, which says which of the four scoring
+    dimensions a finding belongs to. A document finding is always
+    ``FindingCategory.PERMITTING``; this says what sort of permitting item it is.
+    """
+
+    USE_PERMISSION = "use_permission"
+    SETBACK = "setback"
+    PUBLIC_HEARING = "public_hearing"
+    DECOMMISSIONING = "decommissioning"
+    FINANCIAL_SECURITY = "financial_security"
+    ENVIRONMENTAL_STUDY = "environmental_study"
+    TRAFFIC_STUDY = "traffic_study"
+    APPLICATION_REQUIREMENT = "application_requirement"
+    OTHER = "other"
 
 
 class FindingDraft(BaseModel):
@@ -62,7 +94,7 @@ class FindingDraft(BaseModel):
 
 
 class RiskFindingRead(BaseModel):
-    """A persisted finding as returned by the API."""
+    """A persisted finding as returned by the API, whatever produced it."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -81,5 +113,15 @@ class RiskFindingRead(BaseModel):
     threshold_value: float | None
     confidence: float | None = Field(default=None, ge=0, le=1)
     review_status: ReviewStatus
+
+    # Document-derived findings only; None / False on a deterministic finding.
+    requirement_category: RequirementCategory | None = None
+    original_title: str | None = None
+    original_description: str | None = None
+    requires_human_review: bool = False
+
+    # Required on a DOCUMENT finding, empty on every other source.
+    evidence: list[EvidenceResponse] = Field(default_factory=list)
+
     created_at: datetime
     updated_at: datetime

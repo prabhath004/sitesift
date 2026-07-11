@@ -10,6 +10,7 @@ from app.database.base import Base
 from app.models.base import created_at_column, uuid_pk
 
 if TYPE_CHECKING:
+    from app.models.document import Document
     from app.models.project import Project
     from app.models.risk_finding import RiskFinding
     from app.models.site_score import SiteScore
@@ -56,5 +57,8 @@ class CandidateSite(Base):
         back_populates="site", cascade="all, delete-orphan"
     )
     findings: Mapped[list["RiskFinding"]] = relationship(
+        back_populates="site", cascade="all, delete-orphan"
+    )
+    documents: Mapped[list["Document"]] = relationship(
         back_populates="site", cascade="all, delete-orphan"
     )

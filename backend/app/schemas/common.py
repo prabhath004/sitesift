@@ -94,9 +94,25 @@ class ReviewDecision(StrEnum):
 
 
 class DocumentProcessingStatus(StrEnum):
-    """Spec §15.6 — lifecycle of an uploaded permitting document."""
+    """Spec §15.6 — lifecycle of an uploaded permitting document.
+
+    CONTRACT CHANGE (integration). v1 drafted this as four members
+    (``uploaded``/``processing``/``completed``/``failed``), but the
+    document-analysis workflow needs to report which LangGraph stage a document
+    is in, and it carried a second, parallel ``DocumentWorkflowStatus`` enum over
+    the same column to say so. Two enums for one column is exactly the drift the
+    contract exists to prevent, so the workflow's members are folded in here and
+    the duplicate is gone. ``PROCESSING`` is retained as the coarse state for a
+    document that is in flight but not in a named stage.
+    """
 
     UPLOADED = "uploaded"
     PROCESSING = "processing"
+    VALIDATING = "validating"
+    EXTRACTING = "extracting"
+    RETRIEVING = "retrieving"
+    ANALYZING = "analyzing"
+    NEEDS_REVIEW = "needs_review"
     COMPLETED = "completed"
+    PARTIALLY_COMPLETED = "partially_completed"
     FAILED = "failed"
