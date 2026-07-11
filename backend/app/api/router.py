@@ -14,8 +14,13 @@ Planned routers (see docs/API_CONTRACT.md), none implemented yet:
 
 from fastapi import APIRouter
 
+from app.api.routes import demo, findings, projects, screenings, sites
+
 api_router = APIRouter()
 
 # Feature agents: add router includes below, one line each.
-# from app.api.routes import projects
-# api_router.include_router(projects.router)
+api_router.include_router(projects.router)
+api_router.include_router(sites.router)
+api_router.include_router(screenings.router)
+api_router.include_router(findings.router)
+api_router.include_router(demo.router)
