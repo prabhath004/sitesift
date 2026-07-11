@@ -1,0 +1,60 @@
+# SiteSift — local development stack.
+#
+#   docker compose up
+#
+# Host ports come from the environment, so multiple worktrees can run at once:
+#   BACKEND_PORT=8010 FRONTEND_PORT=3010 docker compose -p sitesift-wt2 up
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sitesift
+      POSTGRES_PASSWORD: sitesift
+      POSTGRES_DB: sitesift
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sitesift"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://sitesift:sitesift@db:5432/sitesift
+      ENVIRONMENT: development
+      # The browser talks to the frontend on the host, so CORS must allow the
+      # host-visible frontend origin.
+      CORS_ORIGINS: '["http://localhost:${FRONTEND_PORT:-3000}"]'
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    environment:
+      # Evaluated in the browser: must be the host-visible backend URL, not the
+      # compose service name.
+      NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8000}
+      FRONTEND_PORT: 3000
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+
+volumes:
+  db_data:

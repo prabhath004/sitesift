@@ -1,0 +1,6 @@
+site_name,latitude,longitude,acreage,jurisdiction,road_distance_miles,flood_overlap_percent,wetland_overlap_percent
+River Road,42.110,-73.910,34,Greenfield County,0.7,0,2
+Oak Parcel,42.145,-73.880,27,Greenfield County,1.1,4,14
+County Route 9,42.090,-73.970,22,Greenfield County,0.4,0,1
+Mill Farm,42.180,-73.930,41,Greenfield County,2.8,7,4
+North Ridge,42.125,-73.850,31,Greenfield County,1.3,2,5

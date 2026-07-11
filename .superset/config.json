@@ -1,0 +1,46 @@
+{
+  "name": "sitesift",
+  "description": "Evidence-backed site triage for renewable energy and power infrastructure projects.",
+  "setup": "./.superset/run.sh setup",
+  "run": "./.superset/run.sh start",
+  "ports": [
+    {
+      "name": "frontend",
+      "env": "FRONTEND_PORT",
+      "base": 3000,
+      "description": "Next.js dev server. Falls back to the first free port at or above the base."
+    },
+    {
+      "name": "backend",
+      "env": "BACKEND_PORT",
+      "base": 8000,
+      "description": "FastAPI (uvicorn). Health probe at GET /health."
+    }
+  ],
+  "env": {
+    "required": [],
+    "optional": [
+      "DATABASE_URL",
+      "BACKEND_PORT",
+      "FRONTEND_PORT",
+      "NEXT_PUBLIC_API_URL",
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY"
+    ],
+    "example_file": ".env.example",
+    "note": "The foundation runs with no .env and no AI keys. run.sh copies .env.example to .env when one is missing."
+  },
+  "healthcheck": {
+    "url": "http://localhost:${BACKEND_PORT}/health",
+    "expect_status": 200
+  },
+  "commands": {
+    "backend_test": "cd backend && ./.venv/bin/pytest",
+    "backend_lint": "cd backend && ./.venv/bin/ruff check . && ./.venv/bin/ruff format --check .",
+    "backend_typecheck": "cd backend && ./.venv/bin/mypy",
+    "frontend_test": "cd frontend && npm test",
+    "frontend_lint": "cd frontend && npm run lint",
+    "frontend_typecheck": "cd frontend && npm run typecheck",
+    "frontend_build": "cd frontend && npm run build"
+  }
+}

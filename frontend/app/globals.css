@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+/*
+ * Foundation styling only: Tailwind plus a system font stack. The visual
+ * direction in the spec (§25 — clean, technical, evidence-first) is the
+ * frontend agent's to build out.
+ */
+
+@theme inline {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+}

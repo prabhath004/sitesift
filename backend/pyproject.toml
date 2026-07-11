@@ -1,0 +1,26 @@
+[project]
+name = "sitesift-backend"
+version = "0.1.0"
+description = "SiteSift backend — evidence-backed site triage for power infrastructure projects."
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["app", "tests"]
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+exclude = "alembic/"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

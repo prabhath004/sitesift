@@ -1,0 +1,34 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local SQLite databases
+*.db
+*.sqlite3
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Uploaded documents and generated artifacts (never commit user content)
+uploads/
+storage/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
