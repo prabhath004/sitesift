@@ -5,8 +5,12 @@ Valley Community Solar, a 5 MW community-solar project with a 25-acre minimum).
 
 ## `candidate-sites.sample.csv`
 
-The five synthetic sites from the spec, verbatim. Nothing imports this file yet;
-the CSV import path is the backend-screening agent's work.
+The five synthetic sites from the spec, verbatim.
+
+`POST /api/demo/seed` reads this file and imports it through the ordinary CSV
+import path, so the seeded demo exercises the same validation and de-duplication
+code as a real upload rather than bypassing it. Editing this file changes what
+the demo screens.
 
 Columns:
 
@@ -29,7 +33,6 @@ prototype deterministic and offline — see spec §12.1.
 
 - `sample-zoning-ordinance.pdf` — the document-analysis agent adds a sample
   permitting document.
-- A seeded demo loader ("Load Sample Solar Project", spec §24).
 
 Sites in this file are synthetic. Coordinates are approximate and are not tied
 to real parcels.
