@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
 
+    # Document-analysis defaults. The upload directory is outside the repo by
+    # default so tests and local runs do not dirty the worktree.
+    document_max_upload_bytes: int = 10 * 1024 * 1024
+    document_storage_dir: str = "/tmp/sitesift-documents"
+    document_chunk_max_chars: int = 1200
+    document_chunk_overlap_chars: int = 120
+
 
 @lru_cache
 def get_settings() -> Settings:

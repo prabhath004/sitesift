@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { ErrorState, LoadingState } from "@/components/states";
-import { API_BASE_URL, getHealth } from "@/lib/api";
+import { API_BASE_URL, siteSiftApi } from "@/lib/api";
 import type { HealthResponse } from "@/types/api";
 
 type Status =
@@ -13,7 +13,7 @@ type Status =
 
 async function checkBackend(): Promise<Status> {
   try {
-    return { kind: "ok", health: await getHealth() };
+    return { kind: "ok", health: await siteSiftApi.getHealth() };
   } catch (caught) {
     return {
       kind: "error",

@@ -1,54 +1,20 @@
 /**
- * API client.
+ * The API boundary. Components import `siteSiftApi` from here and never call
+ * `fetch` themselves.
  *
- * One place that knows the backend's base URL and error shape. Feature code
- * should call `apiFetch` rather than `fetch` directly so that base URL, JSON
- * handling, and error semantics stay consistent.
+ * The integrated app talks to the real backend. The mock is opt-in, explicit, and
+ * off unless `NEXT_PUBLIC_USE_MOCK_API=true` — and a failing request never falls
+ * back to it. Silently serving fabricated scores when the backend is down would
+ * make an outage look like a screening result, which is the one failure mode this
+ * product cannot have.
  */
 
-import type { HealthResponse } from "@/types/api";
+import { httpApi, ApiError, API_BASE_URL, type SiteSiftApi } from "@/lib/api/client";
+import { mockApi, resetMockApi } from "@/lib/api/mock";
 
-/**
- * The backend base URL. `NEXT_PUBLIC_API_URL` is read at build time by Next,
- * so it must be present in the environment when the frontend is built or
- * started; the fallback keeps `npm run dev` working with no `.env`.
- */
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const USE_MOCK_API = process.env.NEXT_PUBLIC_USE_MOCK_API === "true";
 
-export class ApiError extends Error {
-  readonly status: number;
+export const siteSiftApi: SiteSiftApi = USE_MOCK_API ? mockApi : httpApi;
 
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-  }
-}
-
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  let response: Response;
-
-  try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...init?.headers,
-      },
-    });
-  } catch {
-    // Status 0 means the request never reached the backend: it is not running,
-    // or the port/base URL is wrong.
-    throw new ApiError(`Could not reach the SiteSift API at ${API_BASE_URL}`, 0);
-  }
-
-  if (!response.ok) {
-    throw new ApiError(`Request to ${path} failed`, response.status);
-  }
-
-  return (await response.json()) as T;
-}
-
-export function getHealth(): Promise<HealthResponse> {
-  return apiFetch<HealthResponse>("/health", { cache: "no-store" });
-}
+export { ApiError, API_BASE_URL, httpApi, mockApi, resetMockApi };
+export type { SiteSiftApi };

@@ -1,18 +1,23 @@
-# SiteSift API contract — version 1 (draft)
+# SiteSift API contract — version 1
 
-**Status: draft. Nothing below is implemented yet** apart from `GET /health` and
-the shared status enums. This document exists so that the backend, frontend, and
-document-analysis agents can work in parallel against the same shapes.
+**Status: implemented.** Every endpoint below exists and is exercised by tests.
 
-Source of truth for the shared enums:
+**The backend is the source of truth, and the contract is now generated, not
+transcribed.** `docs/openapi.json` is exported from the running FastAPI app, and
+`frontend/lib/api/generated.ts` is generated from it:
 
-- Backend: `backend/app/schemas/common.py`
-- Frontend: `frontend/types/api.ts`
+```bash
+cd frontend && npm run api:generate   # re-exports the spec and regenerates types
+```
 
-Those two files must always agree, member for member. **Changing an enum member,
-a field name, or a field type is a contract change**: update both files and this
-document in the same commit, and say so in the commit message. Do not change a
-shared shape silently — another agent is coding against it.
+`frontend/types/api.ts` is no longer a hand-maintained mirror of
+`backend/app/schemas/common.py` — it is a set of aliases over the generated types.
+A backend field change therefore becomes a TypeScript error rather than a silent
+drift. **Changing an enum member, a field name, or a field type is still a
+contract change**: update the backend schema, regenerate, and update this
+document in the same commit.
+
+Prose below documents intent; the generated spec documents the exact shapes.
 
 ## Conventions
 
@@ -37,14 +42,44 @@ These are the only parts of the contract that exist in code today.
 | `FindingSeverity` | `info`, `warning`, `high`, `fatal` |
 | `ReviewStatus` | `pending`, `approved`, `edited`, `rejected`, `escalated` |
 | `ReviewDecision` | `approve`, `edit`, `reject`, `escalate` |
-| `DocumentProcessingStatus` | `uploaded`, `processing`, `completed`, `failed` |
+| `DocumentProcessingStatus` | `uploaded`, `processing`, `validating`, `extracting`, `retrieving`, `analyzing`, `needs_review`, `completed`, `partially_completed`, `failed` |
+| `FindingCategory` | `site_suitability`, `environmental`, `access`, `permitting`, `data_completeness` |
+| `FindingGroup` | `positive_signal`, `risk`, `missing_information`, `requirement` |
+| `RequirementCategory` | `use_permission`, `setback`, `public_hearing`, `decommissioning`, `financial_security`, `environmental_study`, `traffic_study`, `application_requirement`, `other` |
+| `PermittingAnalysisStatus` | `not_analyzed`, `pending_document_review`, `analyzed` |
 
 > **Open question (v1):** the spec lists project types as Solar / Battery storage
 > / Data center / EV charging / Other (§10.2) but the example request uses
 > `community_solar` (§16.1). Both are included until a product decision is made.
 > Do not resolve this unilaterally.
 
-## Entity contracts (draft — not implemented)
+## Contract changes made during integration
+
+These were resolved when the three feature branches were merged
+(`docs/INTEGRATION_NOTES.md` explains each one):
+
+1. **`DocumentProcessingStatus` gained six members.** The document-analysis branch
+   carried a parallel `DocumentWorkflowStatus` enum over the same
+   `documents.processing_status` column. Two enums for one column is the drift
+   this contract exists to prevent, so the workflow's finer states
+   (`validating`, `extracting`, `retrieving`, `analyzing`, `needs_review`,
+   `partially_completed`) were folded into the contract enum and the duplicate
+   deleted.
+2. **`FindingGroup` gained `requirement`.** Document-derived permitting
+   requirements are neither risks nor missing information: an obligation an
+   ordinance imposes is not a defect in the site, and not an unknown. They get
+   their own list.
+3. **`RiskFinding` is the only finding shape.** The document branch had a separate
+   `DocumentFindingResponse` over the same `risk_findings` table. There is one
+   schema now; it carries `evidence[]`, and the document-only fields
+   (`requirement_category`, `original_title`, `original_description`,
+   `requires_human_review`, `confidence`) are null/false on a deterministic
+   finding.
+4. **New endpoints** (see below): `GET /api/projects/dashboard`,
+   `GET /api/projects/{project_id}/screenings/latest`,
+   `GET /api/sites/{site_id}/documents`, `GET /api/sites/{site_id}/brief`.
+
+## Entity contracts
 
 ### Project
 
@@ -211,8 +246,34 @@ Responds with the updated risk finding. A finding is not final until it is
 approved (spec §9.3). Review history is append-only: a `reviews` row per
 decision, never an in-place overwrite.
 
+### Diligence brief
+
+`GET /api/sites/{site_id}/brief` → `SiteBriefRead`. Spec §8.1G. Every section is
+read back from data screening and review already produced — the brief computes no
+score and states no new fact, so it cannot disagree with the screen a reviewer
+approved it from.
+
+Sections: project summary, selected site, candidate ranking, positive signals,
+major risks, permitting requirements (with evidence and review status), missing
+information, recommended next steps, evidence references.
+
+### Derived reads
+
+Both exist so the UI never derives a backend-owned value itself:
+
+- `GET /api/projects/dashboard` → `ProjectDashboardItem[]` — per project:
+  `candidate_count`, `top_score`, `high_risk_finding_count`,
+  `recommended_site_count`, `latest_screening_run_id`.
+- `GET /api/projects/{project_id}/screenings/latest` → `ScreeningRunDetail` — the
+  latest run with its embedded project and ranked results. 404 when the project
+  has never been screened, which the UI shows as an empty state, not an error.
+
+`SiteScreeningResult` also carries `high_risk_finding_count`, `warning_count`, and
+`recommended_next_action`. The frontend's mock used to compute all three; they are
+conclusions drawn from findings and a recommendation status, and the backend is
+the only place allowed to draw them.
+
 ## Not in v1
 
-Authentication, pagination, filtering, sorting parameters, webhooks, and the
-diligence-brief payload (`/api/sites/{site_id}/brief`) are undefined. The agent
-that first needs one proposes it here before implementing it.
+Authentication, pagination, filtering, sorting parameters, and webhooks remain
+undefined. The agent that first needs one proposes it here before implementing it.
