@@ -48,7 +48,7 @@ class DocumentResponse(BaseModel):
     mime_type: str
     page_count: int
     processing_status: DocumentProcessingStatus
-    error_message: str | None = None
+    error_message: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -128,7 +128,7 @@ class DocumentAnalysisResponse(BaseModel):
     document: DocumentResponse
     findings: list[RiskFindingRead]
     workflow_events: list[DocumentWorkflowEventResponse]
-    summary: str | None = None
+    summary: str | None
 
 
 class ReviewFindingRequest(BaseModel):

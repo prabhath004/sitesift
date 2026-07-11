@@ -13,6 +13,7 @@ from app.schemas.screening import ScreeningRunDetail, WorkflowEventRead
 from app.services.results import build_run_detail
 from app.services.screening import (
     NoCandidateSitesError,
+    find_latest_run,
     find_run_by_idempotency_key,
     run_screening,
 )
@@ -52,6 +53,23 @@ def create_screening(
         db.rollback()
         raise database_error("run the screening") from exc
 
+    return build_run_detail(db, run)
+
+
+@router.get("/projects/{project_id}/screenings/latest", response_model=ScreeningRunDetail)
+def get_latest_screening(project: ProjectDep, db: DbSession) -> ScreeningRunDetail:
+    """The project's most recent run, with its ranked results.
+
+    The results screen needs the project, the run, and the ranking together. 404
+    means the project has not been screened yet — a normal state the UI shows as
+    an empty state, not an error.
+    """
+    run = find_latest_run(db, project.id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project.id} has not been screened yet.",
+        )
     return build_run_detail(db, run)
 
 

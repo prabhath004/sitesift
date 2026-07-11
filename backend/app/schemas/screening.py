@@ -107,8 +107,14 @@ class SiteScreeningResult(BaseModel):
 
 
 class ScreeningRunDetail(ScreeningRunRead):
-    """A run plus its ranked results, highest score first."""
+    """A run plus its ranked results, highest score first.
 
+    The project is embedded because every screen that shows a ranking also shows
+    the criteria the ranking was produced against; sending them together means the
+    UI cannot render a score next to a stale threshold.
+    """
+
+    project: ProjectRead
     results: list[SiteScreeningResult]
 
 

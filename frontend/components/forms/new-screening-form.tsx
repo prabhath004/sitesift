@@ -128,7 +128,7 @@ export function NewScreeningForm({ api = siteSiftApi }: { api?: ScreeningFormApi
       <FormSection number="01" title="Project details" description="Define the development target used to evaluate every candidate.">
         <div className="grid gap-5 sm:grid-cols-2">
           <Field label="Project name" name="name" error={errors.name} className="sm:col-span-2">
-            <input id="name" name="name" value={values.name} onChange={(event) => update("name", event.target.value)} aria-invalid={Boolean(errors.name)} aria-describedby={errors.name ? "name-error" : undefined} className={inputClass} placeholder="Hudson Valley Community Solar" />
+            <input id="name" name="name" value={values.name} onChange={(event) => update("name", event.target.value)} aria-invalid={Boolean(errors.name)} aria-describedby={errors.name ? "name-error" : undefined} className={inputClass} placeholder="Name this screening project" />
           </Field>
           <Field label="Project type" name="project_type" error={errors.project_type}>
             <select id="project_type" name="project_type" value={values.project_type} onChange={(event) => update("project_type", event.target.value)} aria-invalid={Boolean(errors.project_type)} aria-describedby={errors.project_type ? "project_type-error" : undefined} className={inputClass}>

@@ -111,17 +111,20 @@ class RiskFindingRead(BaseModel):
     value: str | None
     actual_value: float | None
     threshold_value: float | None
-    confidence: float | None = Field(default=None, ge=0, le=1)
+    confidence: float | None = Field(ge=0, le=1)
     review_status: ReviewStatus
 
-    # Document-derived findings only; None / False on a deterministic finding.
-    requirement_category: RequirementCategory | None = None
-    original_title: str | None = None
-    original_description: str | None = None
-    requires_human_review: bool = False
+    # Document-derived findings only; null / false on a deterministic finding.
+    # Declared without defaults on purpose: the API always serializes them, and a
+    # Pydantic default would mark them optional in the OpenAPI document, which
+    # would hand the frontend a `| undefined` it can never actually receive.
+    requirement_category: RequirementCategory | None
+    original_title: str | None
+    original_description: str | None
+    requires_human_review: bool
 
     # Required on a DOCUMENT finding, empty on every other source.
-    evidence: list[EvidenceResponse] = Field(default_factory=list)
+    evidence: list[EvidenceResponse]
 
     created_at: datetime
     updated_at: datetime

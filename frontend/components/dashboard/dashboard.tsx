@@ -87,7 +87,9 @@ function DashboardContent({ items, actions }: { items: ProjectDashboardItem[]; a
   const candidateCount = items.reduce((sum, item) => sum + item.candidate_count, 0);
   const highRiskCount = items.reduce((sum, item) => sum + item.high_risk_finding_count, 0);
   const recommendedCount = items.reduce((sum, item) => sum + item.recommended_site_count, 0);
-  const activeCount = items.filter((item) => item.project.status !== "failed").length;
+  const activeCount = items.filter(
+    (item) => item.project.status === "active" || item.project.status === "screening",
+  ).length;
 
   return (
     <div className="space-y-7">

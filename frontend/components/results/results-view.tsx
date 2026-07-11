@@ -43,7 +43,7 @@ export function ResultsView({ projectId, api = siteSiftApi }: { projectId: strin
 
   const candidates = useMemo(() => {
     if (!results) return [];
-    const filtered = filter === "all" ? results.candidates : results.candidates.filter((candidate) => candidate.score.recommendation_status === filter);
+    const filtered = filter === "all" ? results.results : results.results.filter((candidate) => candidate.score.recommendation_status === filter);
     return [...filtered].sort(sortCandidates(sort));
   }, [filter, results, sort]);
 
@@ -54,17 +54,17 @@ export function ResultsView({ projectId, api = siteSiftApi }: { projectId: strin
     return <PageLayout eyebrow="Screening results" title="Loading ranking"><LoadingState label="Loading ranked candidate sites…" /></PageLayout>;
   }
 
-  const counts = countStatuses(results.candidates);
+  const counts = countStatuses(results.results);
   return (
     <PageLayout
       eyebrow="Screening complete"
       title={results.project.name}
-      description={`${results.candidates.length} candidate site${results.candidates.length === 1 ? "" : "s"} screened with deterministic rules. Select a site to inspect every deduction.`}
+      description={`${results.results.length} candidate site${results.results.length === 1 ? "" : "s"} screened with deterministic rules. Select a site to inspect every deduction.`}
       actions={<Link href="/" className="rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">All projects</Link>}
     >
       <div className="space-y-7">
         <section aria-label="Result summary" className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <SummaryCard label="Top score" value={results.candidates[0]?.score.overall_score ?? "—"} detail="Matches the leading site" />
+          <SummaryCard label="Top score" value={results.results[0]?.score.overall_score ?? "—"} detail="Matches the leading site" />
           <SummaryCard label="Recommended" value={counts.recommended} detail="Strongest candidates" />
           <SummaryCard label="Needs review" value={counts.review} detail="Advance with confirmation" />
           <SummaryCard label="High risk" value={counts.highRisk} detail="Material findings" />
@@ -93,14 +93,14 @@ function CandidateRanking({ candidates }: { candidates: RankedCandidate[] }) {
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500"><tr><th className="px-4 py-3 text-center font-bold">Rank</th><th className="px-4 py-3 font-bold">Site name</th><th className="px-4 py-3 font-bold">Overall score</th><th className="px-4 py-3 font-bold">Recommendation</th><th className="px-4 py-3 text-center font-bold">High risk</th><th className="px-4 py-3 text-center font-bold">Warnings</th><th className="px-4 py-3 font-bold">Next action</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
-            {candidates.map((candidate) => <tr key={candidate.site.id} className="hover:bg-slate-50"><td className="px-4 py-4 text-center font-mono text-lg font-bold text-slate-400">{candidate.rank}</td><td className="px-4 py-4"><Link href={`/sites/${candidate.site.id}`} className="font-bold text-forest hover:underline">{candidate.site.name}</Link><p className="mt-1 text-xs text-slate-500">{candidate.site.jurisdiction}</p></td><td className="px-4 py-4"><ScoreDisplay score={candidate.score.overall_score} compact /></td><td className="px-4 py-4"><StatusBadge status={candidate.score.recommendation_status} /></td><td className="px-4 py-4 text-center font-mono font-bold">{candidate.high_risk_finding_count}</td><td className="px-4 py-4 text-center font-mono font-bold">{candidate.warning_count}</td><td className="px-4 py-4 text-slate-600">{candidate.recommended_next_action}</td></tr>)}
+            {candidates.map((candidate) => <tr key={candidate.site.id} className="hover:bg-slate-50"><td className="px-4 py-4 text-center font-mono text-lg font-bold text-slate-400">{candidate.score.rank}</td><td className="px-4 py-4"><Link href={`/sites/${candidate.site.id}`} className="font-bold text-forest hover:underline">{candidate.site.name}</Link><p className="mt-1 text-xs text-slate-500">{candidate.site.jurisdiction}</p></td><td className="px-4 py-4"><ScoreDisplay score={candidate.score.overall_score} compact /></td><td className="px-4 py-4"><StatusBadge status={candidate.score.recommendation_status} /></td><td className="px-4 py-4 text-center font-mono font-bold">{candidate.high_risk_finding_count}</td><td className="px-4 py-4 text-center font-mono font-bold">{candidate.warning_count}</td><td className="px-4 py-4 text-slate-600">{candidate.recommended_next_action}</td></tr>)}
           </tbody>
         </table>
       </div>
       <div data-testid="mobile-candidate-list" className="divide-y divide-slate-100 lg:hidden">
         {candidates.map((candidate) => (
           <article key={candidate.site.id} className="p-5">
-            <div className="flex items-start gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 font-mono text-sm font-bold text-slate-500">{candidate.rank}</span><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><Link href={`/sites/${candidate.site.id}`} className="font-bold text-forest hover:underline">{candidate.site.name}</Link><p className="mt-1 text-xs text-slate-500">{candidate.site.jurisdiction}</p></div><ScoreDisplay score={candidate.score.overall_score} compact /></div><div className="mt-3"><StatusBadge status={candidate.score.recommendation_status} /></div><dl className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 text-xs"><div><dt className="text-slate-500">High-risk findings</dt><dd className="mt-1 font-mono font-bold text-ink">{candidate.high_risk_finding_count}</dd></div><div><dt className="text-slate-500">Warnings</dt><dd className="mt-1 font-mono font-bold text-ink">{candidate.warning_count}</dd></div><div className="col-span-2"><dt className="text-slate-500">Next action</dt><dd className="mt-1 font-semibold text-ink">{candidate.recommended_next_action}</dd></div></dl></div></div>
+            <div className="flex items-start gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 font-mono text-sm font-bold text-slate-500">{candidate.score.rank}</span><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><Link href={`/sites/${candidate.site.id}`} className="font-bold text-forest hover:underline">{candidate.site.name}</Link><p className="mt-1 text-xs text-slate-500">{candidate.site.jurisdiction}</p></div><ScoreDisplay score={candidate.score.overall_score} compact /></div><div className="mt-3"><StatusBadge status={candidate.score.recommendation_status} /></div><dl className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 text-xs"><div><dt className="text-slate-500">High-risk findings</dt><dd className="mt-1 font-mono font-bold text-ink">{candidate.high_risk_finding_count}</dd></div><div><dt className="text-slate-500">Warnings</dt><dd className="mt-1 font-mono font-bold text-ink">{candidate.warning_count}</dd></div><div className="col-span-2"><dt className="text-slate-500">Next action</dt><dd className="mt-1 font-semibold text-ink">{candidate.recommended_next_action}</dd></div></dl></div></div>
           </article>
         ))}
       </div>
@@ -113,7 +113,7 @@ function sortCandidates(sort: SortKey): (left: RankedCandidate, right: RankedCan
   if (sort === "score_asc") return (left, right) => left.score.overall_score - right.score.overall_score;
   if (sort === "name") return (left, right) => left.site.name.localeCompare(right.site.name);
   if (sort === "risk_desc") return (left, right) => right.high_risk_finding_count - left.high_risk_finding_count;
-  return (left, right) => left.rank - right.rank;
+  return (left, right) => left.score.rank - right.score.rank;
 }
 
 function countStatuses(candidates: RankedCandidate[]) {

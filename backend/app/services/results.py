@@ -67,6 +67,7 @@ def build_run_detail(db: Session, run: ScreeningRun) -> ScreeningRunDetail:
 
     return ScreeningRunDetail(
         id=run.id,
+        project=ProjectRead.model_validate(run.project),
         project_id=run.project_id,
         status=run.status,
         idempotency_key=run.idempotency_key,

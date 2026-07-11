@@ -3,31 +3,27 @@ import { beforeEach, expect, test, vi } from "vitest";
 
 import { Dashboard } from "@/components/dashboard/dashboard";
 import { mockApi, resetMockApi } from "@/lib/api";
-import { demoProject } from "@/lib/mock-data";
-import type { ProjectDashboardItem } from "@/types/api";
+import { demoDashboard, demoProject } from "@/tests/fixtures";
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
-
-const item: ProjectDashboardItem = {
-  project: demoProject,
-  candidate_count: 5,
-  top_score: 88,
-  high_risk_finding_count: 4,
-  recommended_site_count: 1,
-};
 
 beforeEach(() => {
   resetMockApi();
   push.mockReset();
 });
 
-test("renders dashboard summary and project data", async () => {
-  render(<Dashboard api={{ getProjectDashboard: async () => [item], seedDemoProject: () => mockApi.seedDemoProject() }} />);
+test("renders the dashboard rollups the backend computed", async () => {
+  const items = demoDashboard();
+  const item = items[0];
+  render(<Dashboard api={{ getProjectDashboard: async () => items, seedDemoProject: () => mockApi.seedDemoProject() }} />);
 
-  expect((await screen.findAllByText("Hudson Valley Community Solar")).length).toBeGreaterThan(0);
+  expect((await screen.findAllByText(item.project.name)).length).toBeGreaterThan(0);
   expect(screen.getByText("Candidate sites")).toBeInTheDocument();
-  expect(screen.getAllByLabelText("Overall score: 88 out of 100").length).toBeGreaterThan(0);
+  // The top score is whatever the backend said it was, not a number typed here.
+  expect(
+    screen.getAllByLabelText(`Overall score: ${item.top_score} out of 100`).length,
+  ).toBeGreaterThan(0);
 });
 
 test("renders the empty project state", async () => {
@@ -40,11 +36,16 @@ test("renders a loading state while project data is pending", () => {
   expect(screen.getByRole("status")).toHaveTextContent("Loading screening projects");
 });
 
-test("renders and can retry an API failure state", async () => {
-  const getProjectDashboard = vi.fn().mockRejectedValueOnce(new Error("Mock outage")).mockResolvedValueOnce([]);
+test("the loading state terminates on failure, and the failure can be retried", async () => {
+  const getProjectDashboard = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("Backend unavailable"))
+    .mockResolvedValueOnce([]);
   render(<Dashboard api={{ getProjectDashboard, seedDemoProject: () => mockApi.seedDemoProject() }} />);
 
-  expect(await screen.findByRole("alert")).toHaveTextContent("Mock outage");
+  expect(await screen.findByRole("alert")).toHaveTextContent("Backend unavailable");
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(await screen.findByText("No screening projects yet.")).toBeInTheDocument();
   expect(getProjectDashboard).toHaveBeenCalledTimes(2);
@@ -55,5 +56,5 @@ test("loads the seeded solar demo and opens its ranking", async () => {
   await screen.findByText("No screening projects yet.");
   fireEvent.click(screen.getAllByRole("button", { name: "Load Sample Solar Project" })[0]);
 
-  await vi.waitFor(() => expect(push).toHaveBeenCalledWith(`/projects/${demoProject.id}/results`));
+  await vi.waitFor(() => expect(push).toHaveBeenCalledWith(`/projects/${demoProject().id}/results`));
 });

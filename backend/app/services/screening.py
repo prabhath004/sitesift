@@ -50,6 +50,21 @@ def find_run_by_idempotency_key(
     )
 
 
+def find_latest_run(db: Session, project_id: str) -> ScreeningRun | None:
+    """The project's most recent run, whatever its outcome.
+
+    A failed or partially completed run is still the latest thing that happened
+    to the project, and hiding it would leave the results screen showing an older
+    run as if it were current.
+    """
+    return db.scalar(
+        select(ScreeningRun)
+        .where(ScreeningRun.project_id == project_id)
+        .order_by(ScreeningRun.created_at.desc())
+        .limit(1)
+    )
+
+
 def run_screening(
     db: Session, project: Project, idempotency_key: str | None = None
 ) -> ScreeningRun:
