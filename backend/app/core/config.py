@@ -31,8 +31,9 @@ class Settings(BaseSettings):
     # configurable per worktree, so this is a list rather than a single value.
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
-    # Optional. Document analysis (a future worktree) needs one of these;
-    # nothing in the foundation does.
+    # Optional. Requirement extraction uses a model when a key is present and
+    # falls back to the deterministic heuristic extractor when it is not, so the
+    # app runs — and the tests pass — with no key configured at all.
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
 
@@ -42,6 +43,13 @@ class Settings(BaseSettings):
     document_storage_dir: str = "/tmp/sitesift-documents"
     document_chunk_max_chars: int = 1200
     document_chunk_overlap_chars: int = 120
+
+    # Requirement extraction.
+    extraction_model: str = "gpt-4.1-mini"
+    extraction_timeout_seconds: float = 60.0
+    # How many times the graph may send a failed citation back to the model and
+    # ask it to quote the ordinance exactly. Zero disables the repair loop.
+    extraction_citation_retries: int = 1
 
 
 @lru_cache

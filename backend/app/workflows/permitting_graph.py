@@ -21,7 +21,7 @@ from app.services.document_confidence import assign_confidence
 from app.services.document_errors import NotFoundError, safe_error_message
 from app.services.document_evidence import validate_requirement_evidence
 from app.services.document_extraction import (
-    HeuristicRequirementExtractor,
+    FailedCitation,
     RequirementExtractor,
     parse_extracted_requirements,
 )
@@ -36,6 +36,7 @@ from app.services.document_service import (
 )
 from app.services.pdf_parser import PdfParser
 from app.services.pdf_storage import read_pdf
+from app.workflows.llm_extraction import select_extractor
 
 
 class AnalysisState(TypedDict):
@@ -50,6 +51,11 @@ class AnalysisState(TypedDict):
     relevant_sections: NotRequired[list[dict[str, Any]]]
     extracted_requirements: NotRequired[list[dict[str, Any]]]
     valid_requirements: NotRequired[list[dict[str, Any]]]
+    # Citations the model claimed but that are not actually on the page it named.
+    # These drive the repair loop rather than being silently dropped.
+    failed_citations: NotRequired[list[dict[str, Any]]]
+    citation_retries: NotRequired[int]
+    repaired_requirement_count: NotRequired[int]
     final_findings: NotRequired[list[dict[str, Any]]]
     persisted_finding_count: NotRequired[int]
     validation_errors: NotRequired[list[str]]
@@ -87,7 +93,7 @@ def analyze_document(
     db.commit()
 
     graph = _build_graph(
-        db=db, settings=settings, extractor=extractor or HeuristicRequirementExtractor()
+        db=db, settings=settings, extractor=extractor or select_extractor(settings)
     )
     initial_state: AnalysisState = {
         "project_id": document.project_id,
@@ -139,6 +145,9 @@ def _build_graph(
         _evented(db, "extract_requirements", _extract_requirements(extractor)),
     )
     graph.add_node("validate_evidence", _evented(db, "validate_evidence", _validate_evidence(db)))
+    graph.add_node(
+        "repair_citations", _evented(db, "repair_citations", _repair_citations(extractor))
+    )
     graph.add_node("flag_ambiguity", _evented(db, "flag_ambiguity", _flag_ambiguity()))
     graph.add_node("persist_findings", _evented(db, "persist_findings", _persist_findings(db)))
     graph.add_node("generate_summary", _evented(db, "generate_summary", _generate_summary()))
@@ -149,11 +158,35 @@ def _build_graph(
     graph.add_edge("create_page_chunks", "retrieve_relevant_sections")
     graph.add_edge("retrieve_relevant_sections", "extract_requirements")
     graph.add_edge("extract_requirements", "validate_evidence")
-    graph.add_edge("validate_evidence", "flag_ambiguity")
+
+    # The only branch in the graph. A model paraphrases the ordinance instead of
+    # quoting it, the citation fails verification, and rather than dropping the
+    # requirement we hand the failure back to the model and demand a real quote.
+    # A bounded number of attempts, then the unverifiable claims are discarded.
+    graph.add_conditional_edges(
+        "validate_evidence",
+        _route_after_evidence(settings),
+        {"repair_citations": "repair_citations", "flag_ambiguity": "flag_ambiguity"},
+    )
+    graph.add_edge("repair_citations", "validate_evidence")
+
     graph.add_edge("flag_ambiguity", "persist_findings")
     graph.add_edge("persist_findings", "generate_summary")
     graph.add_edge("generate_summary", END)
     return graph.compile()
+
+
+def _route_after_evidence(settings: Settings) -> Callable[[AnalysisState], str]:
+    """Repair unverifiable citations while attempts remain; otherwise move on."""
+
+    def route(state: AnalysisState) -> str:
+        failures = state.get("failed_citations", [])
+        retries = state.get("citation_retries", 0)
+        if failures and retries < settings.extraction_citation_retries:
+            return "repair_citations"
+        return "flag_ambiguity"
+
+    return route
 
 
 def _validate_document(db: Session) -> NodeFunction:
@@ -281,15 +314,26 @@ def _extract_requirements(extractor: RequirementExtractor) -> NodeFunction:
 
 
 def _validate_evidence(db: Session) -> NodeFunction:
+    """Check every citation against the page it names. This is the honesty gate.
+
+    An excerpt that is not a verbatim substring of the extracted page text is not
+    evidence — it is the extractor's paraphrase of the ordinance, or an invention.
+    Either way it cannot be persisted (CLAUDE.md rule 2). Failures are collected
+    for the repair loop rather than discarded here.
+
+    Runs more than once: verified requirements accumulate across repair attempts,
+    so a successful repair adds to the earlier results instead of replacing them.
+    """
+
     def node(state: AnalysisState) -> dict[str, Any]:
         document = get_document_with_text(db, state["document_id"])
-        valid_requirements: list[dict[str, Any]] = []
-        validation_errors = list(state.get("validation_errors", []))
+        valid_requirements = list(state.get("valid_requirements", []))
+        failed_citations: list[dict[str, Any]] = []
 
         for raw_requirement in state.get("extracted_requirements", []):
             requirement = ExtractedRequirement.model_validate(raw_requirement)
             result = validate_requirement_evidence(document, document.pages, requirement)
-            validation_errors.extend(result.errors)
+
             if result.evidence:
                 valid_requirements.append(
                     {
@@ -299,9 +343,65 @@ def _validate_evidence(db: Session) -> NodeFunction:
                         ],
                     }
                 )
+                continue
+
+            # Nothing this requirement cited could be verified. Record what it
+            # claimed, so the model can be shown its own bad citation.
+            reason = result.errors[0] if result.errors else "The citation could not be verified."
+            for evidence in requirement.evidence:
+                failed_citations.append(
+                    {
+                        "title": requirement.title,
+                        "page_number": evidence.page_number,
+                        "excerpt": evidence.excerpt,
+                        "reason": reason,
+                    }
+                )
 
         return {
             "valid_requirements": valid_requirements,
+            "failed_citations": failed_citations,
+            "extracted_requirements": [],
+            "status": DocumentProcessingStatus.ANALYZING.value,
+        }
+
+    return node
+
+
+def _repair_citations(extractor: RequirementExtractor) -> NodeFunction:
+    """Send failed citations back to the extractor and demand a verbatim quote.
+
+    The requirements that come back go through evidence validation again — a
+    repair is a second attempt to prove a claim, never a licence to skip the
+    proof. If the extractor cannot produce a real quote, it returns nothing and
+    the claim is dropped.
+    """
+
+    def node(state: AnalysisState) -> dict[str, Any]:
+        failures = [FailedCitation(**failure) for failure in state.get("failed_citations", [])]
+        sections = [_state_to_section(section) for section in state.get("relevant_sections", [])]
+        retries = state.get("citation_retries", 0) + 1
+
+        raw_requirements = extractor.repair(sections, failures)
+        repaired = parse_extracted_requirements(raw_requirements)
+
+        validation_errors = list(state.get("validation_errors", []))
+        if not repaired:
+            # The extractor could not substantiate the claims. Record why, and let
+            # the run complete partially rather than persisting an unproven claim.
+            validation_errors.extend(
+                f"Requirement '{failure.title}' was discarded: its citation could not be "
+                f"verified against page {failure.page_number}."
+                for failure in failures
+            )
+
+        return {
+            "extracted_requirements": [
+                requirement.model_dump(mode="json") for requirement in repaired
+            ],
+            "failed_citations": [],
+            "citation_retries": retries,
+            "repaired_requirement_count": len(repaired),
             "validation_errors": validation_errors,
             "status": DocumentProcessingStatus.ANALYZING.value,
         }
@@ -314,6 +414,15 @@ def _flag_ambiguity() -> NodeFunction:
         final_requirements: list[dict[str, Any]] = []
         validation_errors = list(state.get("validation_errors", []))
         workflow_status = DocumentProcessingStatus.NEEDS_REVIEW
+
+        # Citations still unverified after the repair budget is spent. The claims
+        # are discarded, and the run says so rather than quietly showing fewer
+        # findings than the document contains.
+        for failure in state.get("failed_citations", []):
+            validation_errors.append(
+                f"Requirement '{failure['title']}' was discarded: its citation could not be "
+                f"verified against page {failure['page_number']}."
+            )
 
         for item in state.get("valid_requirements", []):
             requirement = ExtractedRequirement.model_validate(item["requirement"])
@@ -565,6 +674,12 @@ def _output_summary(node_name: str, output: dict[str, Any]) -> dict[str, Any]:
         summary["requirement_count"] = len(output["extracted_requirements"])
     if "valid_requirements" in output:
         summary["valid_requirement_count"] = len(output["valid_requirements"])
+    if "failed_citations" in output:
+        summary["failed_citation_count"] = len(output["failed_citations"])
+    if "citation_retries" in output:
+        summary["citation_retries"] = output["citation_retries"]
+    if "repaired_requirement_count" in output:
+        summary["repaired_requirement_count"] = output["repaired_requirement_count"]
     if "final_findings" in output:
         summary["final_finding_count"] = len(output["final_findings"])
     if "persisted_finding_count" in output:

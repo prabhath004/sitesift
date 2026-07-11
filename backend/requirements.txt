@@ -9,6 +9,9 @@ pydantic-settings>=2.5,<3.0
 SQLAlchemy>=2.0,<3.0
 alembic>=1.13,<2.0
 langgraph>=0.2,<1.0
+# Requirement extraction. Optional at runtime: with no key configured the
+# workflow falls back to the deterministic heuristic extractor.
+openai>=1.40,<2.0
 PyMuPDF>=1.24,<2.0
 python-multipart>=0.0.9,<1.0
 

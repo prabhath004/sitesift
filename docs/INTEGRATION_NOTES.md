@@ -203,6 +203,58 @@ a headless browser:
 (The only browser network noise is Next.js RSC link *prefetches* aborted on
 navigation — expected framework behaviour, not application failures.)
 
+## Requirement extraction: model-backed, with a verification gate
+
+Extraction was a keyword/regex heuristic. It is now a model call when a key is
+configured, with the heuristic retained as the fallback.
+
+**Where the code lives matters.** `app/workflows/llm_extraction.py` is the only
+module in SiteSift that calls a model, and it sits in `workflows/` because
+CLAUDE.md rule 1 forbids `services/` from calling one. The heuristic extractor
+stays in `services/` — it computes, it does not infer.
+
+**The model produces claims, not conclusions.** Its output is:
+
+1. constrained by a strict JSON schema (OpenAI structured outputs, `temperature=0`),
+2. re-validated by the same `ExtractedRequirement` Pydantic model the heuristic's
+   output goes through — malformed output raises `InvalidModelOutputError` rather
+   than reaching the database,
+3. forced to `requires_human_review = True` regardless of what it claims, and
+4. **checked against the extracted page text.** An excerpt that is not a verbatim
+   substring of the page it cites is not evidence; it is the model's paraphrase.
+
+**The citation-repair loop.** Point 4 is where a real model actually fails: it
+paraphrases the ordinance instead of quoting it, and a naive implementation would
+silently drop the finding. So `validate_evidence` now feeds unverifiable citations
+into a conditional edge — the only branch in the graph:
+
+```text
+extract_requirements → validate_evidence ─┬─ (failed citations, budget left) → repair_citations ─┐
+                                          │                                                       │
+                                          └─ flag_ambiguity → persist_findings → generate_summary │
+                                                     ▲                                            │
+                                                     └────────────────────────────────────────────┘
+```
+
+`repair_citations` hands the model its own rejected quote and demands a
+character-for-character copy. The repaired requirement goes back through evidence
+validation — a repair is a second attempt to *prove* a claim, never a licence to
+skip the proof. The budget is `EXTRACTION_CITATION_RETRIES` (default 1); when it
+is spent, the unverifiable claims are discarded and the run reports
+`partially_completed` with the reason, rather than quietly showing fewer findings
+than the document contains.
+
+The repair step is a first-class node, so it appears in the public workflow trail
+with its status and duration — a reviewer can see that a citation was rejected and
+re-requested. As with every event, only summaries are recorded: no document text,
+no model reasoning (rules 6 and 7).
+
+**No key, no problem.** `select_extractor()` returns the model-backed extractor
+when `OPENAI_API_KEY` is set and the heuristic otherwise. Tests inject their own
+extractor and never touch the network, so CI needs no secret, and a demo survives
+a dead network or a rate limit. The system degrades to *deterministic*, never to
+*fabricated*.
+
 ## Limitations and open items
 
 - **Postgres was not exercised.** Docker is unavailable in this environment, so
@@ -218,10 +270,14 @@ navigation — expected framework behaviour, not application failures.)
   category still reports `not_analyzed` / 10 of 25. Feeding approved requirements
   back into the deterministic score is a product decision the spec does not make,
   so it was left alone rather than invented.
-- **Requirement extraction is heuristic, not an LLM call.** That is what the
-  document branch built (`HeuristicRequirementExtractor`); the LangGraph node
-  structure and the evidence-validation gate are in place for a model-backed
-  extractor to drop into.
+- **The model-backed extractor has not been exercised against the live OpenAI
+  API here** — no key is configured in this environment. It is covered by tests
+  with a stubbed client (request shape, structured-output parsing, provider
+  failure, repair prompting) and the repair loop is covered end to end with
+  extractors that paraphrase. Set `OPENAI_API_KEY` and re-run the document flow to
+  exercise it for real.
+- **Extraction cost and latency are unmeasured.** One call per analysis (up to 8
+  retrieved sections), plus one more if a citation needs repair.
 - **Review has no reviewer identity.** `reviews` rows are append-only but
   anonymous; there is no auth in v1.
 - **The mock client cannot create projects or import CSVs** (it returns 501 by

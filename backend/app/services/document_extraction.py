@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from pydantic import ValidationError
@@ -15,11 +16,34 @@ from app.services.document_errors import InvalidModelOutputError
 from app.services.document_retrieval import RetrievedSection
 
 
+@dataclass(frozen=True)
+class FailedCitation:
+    """One citation that could not be verified against the extracted page text."""
+
+    title: str
+    page_number: int
+    excerpt: str
+    reason: str
+
+
 class RequirementExtractor(Protocol):
-    """Interface for LLM-backed or mocked requirement extractors."""
+    """Interface for model-backed or mocked requirement extractors."""
 
     def extract(self, sections: Sequence[RetrievedSection]) -> list[dict[str, Any]]:
         """Return raw structured requirements."""
+
+    def repair(
+        self,
+        sections: Sequence[RetrievedSection],
+        failures: Sequence[FailedCitation],
+    ) -> list[dict[str, Any]]:
+        """Re-extract requirements whose citations failed verbatim verification.
+
+        The graph calls this when an extractor cited text that is not actually on
+        the page it named. A language model paraphrases; this is where it is told
+        to quote instead. An extractor that copies source text by construction has
+        nothing to repair and returns an empty list.
+        """
 
 
 class HeuristicRequirementExtractor:
@@ -35,6 +59,14 @@ class HeuristicRequirementExtractor:
             text = section.text
             requirements.extend(self._extract_from_section(section, text))
         return dedupe_requirements(requirements)
+
+    def repair(
+        self,
+        sections: Sequence[RetrievedSection],
+        failures: Sequence[FailedCitation],
+    ) -> list[dict[str, Any]]:
+        """Nothing to repair: every excerpt is copied verbatim from the section."""
+        return []
 
     def _extract_from_section(self, section: RetrievedSection, text: str) -> list[dict[str, Any]]:
         lowered = text.lower()
