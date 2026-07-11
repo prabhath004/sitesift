@@ -1,12 +1,26 @@
-"""ORM models.
+"""ORM model registry for Alembic autogenerate."""
 
-Intentionally empty in the foundation. The backend-screening and
-document-analysis agents own the tables described in the specification
-(projects, candidate_sites, screening_runs, site_scores, risk_findings,
-documents, evidence, reviews, workflow_events).
+from app.models.document import (
+    CandidateSiteRecord,
+    Document,
+    DocumentChunk,
+    DocumentPage,
+    ProjectRecord,
+)
+from app.models.document_finding import DocumentFinding
+from app.models.document_workflow import DocumentAnalysisRequest, WorkflowEvent
+from app.models.evidence import Evidence
+from app.models.review import Review
 
-When adding a model:
-1. Inherit from ``app.database.base.Base``.
-2. Import it here so Alembic autogenerate discovers it.
-3. Generate a migration: ``alembic revision --autogenerate -m "..."``.
-"""
+__all__ = [
+    "CandidateSiteRecord",
+    "Document",
+    "DocumentAnalysisRequest",
+    "DocumentChunk",
+    "DocumentFinding",
+    "DocumentPage",
+    "Evidence",
+    "ProjectRecord",
+    "Review",
+    "WorkflowEvent",
+]
