@@ -31,10 +31,13 @@ class Settings(BaseSettings):
     # configurable per worktree, so this is a list rather than a single value.
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
-    # Optional. Document analysis (a future worktree) needs one of these;
-    # nothing in the foundation does.
+    # Optional. Document analysis uses OpenAI when a key is present; otherwise it
+    # falls back to a local deterministic extractor so the app still runs offline.
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
+    document_extractor_provider: str = "auto"
+    openai_document_model: str = "gpt-4.1-mini"
+    openai_request_timeout_seconds: float = 45.0
 
     # Document-analysis defaults. The upload directory is outside the repo by
     # default so tests and local runs do not dirty the worktree.

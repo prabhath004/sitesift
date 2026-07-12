@@ -11,6 +11,7 @@ alembic>=1.13,<2.0
 langgraph>=0.2,<1.0
 PyMuPDF>=1.24,<2.0
 python-multipart>=0.0.9,<1.0
+httpx>=0.27,<1.0
 
 # Postgres driver. SQLite is the default in local development, so this is only
 # exercised when DATABASE_URL points at Postgres (docker compose does).
@@ -18,7 +19,6 @@ psycopg[binary]>=3.2,<4.0
 
 # Dev / quality tooling
 pytest>=8.3,<9.0
-httpx>=0.27,<1.0
 ruff>=0.7,<1.0
 mypy>=1.11,<2.0
 

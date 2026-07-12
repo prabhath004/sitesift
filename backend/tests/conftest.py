@@ -12,6 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import Settings, get_settings
 from app.database.base import Base
 from app.database.session import get_db
 from app.main import app
@@ -41,7 +42,11 @@ def client(db: Session) -> Generator[TestClient, None, None]:
     def override_get_db() -> Generator[Session, None, None]:
         yield db
 
+    def override_get_settings() -> Settings:
+        return Settings(openai_api_key=None, document_extractor_provider="heuristic")
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_settings] = override_get_settings
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

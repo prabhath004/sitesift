@@ -21,8 +21,8 @@ from app.services.document_confidence import assign_confidence
 from app.services.document_errors import NotFoundError, safe_error_message
 from app.services.document_evidence import validate_requirement_evidence
 from app.services.document_extraction import (
-    HeuristicRequirementExtractor,
     RequirementExtractor,
+    build_requirement_extractor,
     parse_extracted_requirements,
 )
 from app.services.document_retrieval import RetrievedSection, retrieve_relevant_sections
@@ -87,7 +87,9 @@ def analyze_document(
     db.commit()
 
     graph = _build_graph(
-        db=db, settings=settings, extractor=extractor or HeuristicRequirementExtractor()
+        db=db,
+        settings=settings,
+        extractor=extractor or build_requirement_extractor(settings),
     )
     initial_state: AnalysisState = {
         "project_id": document.project_id,

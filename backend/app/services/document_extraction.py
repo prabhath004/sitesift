@@ -1,18 +1,51 @@
-"""Requirement extraction interfaces and deterministic fallback extractor."""
+"""Requirement extraction interfaces and model-backed/local extractors."""
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Sequence
 from typing import Any, Protocol
 
+import httpx
 from pydantic import ValidationError
 
+from app.core.config import Settings
 from app.schemas.common import FindingSeverity
 from app.schemas.document import ExtractedRequirement
 from app.schemas.finding import RequirementCategory
-from app.services.document_errors import InvalidModelOutputError
+from app.services.document_errors import InvalidModelOutputError, TransientAnalysisError
 from app.services.document_retrieval import RetrievedSection
+
+OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+
+_SYSTEM_PROMPT = """You extract permitting and zoning requirements for power-project diligence.
+
+Use only the supplied document sections. Return no requirement unless a provided
+section contains exact supporting text. Every evidence excerpt must be copied
+verbatim from the section text and must support the requirement. Do not summarize
+or invent citations.
+
+Category guidance:
+- use_permission: conditional-use, special-use, permitted-use, board approval, or zoning approval.
+- setback: numeric or specific distance/height/property-line constraints.
+- public_hearing: hearing, notice, public meeting, or board hearing requirements.
+- decommissioning: decommissioning, removal, restoration, abandonment requirements.
+- financial_security: bond, surety, escrow, letter of credit, financial guarantee.
+- environmental_study: wetland, environmental, habitat, stormwater, or similar studies.
+- traffic_study: traffic, road, access, driveway, haul-route studies.
+- application_requirement: site plan, drawings, application materials, submission contents.
+- other: relevant permitting requirement that does not fit the categories above.
+
+Severity guidance:
+- info: procedural or informational obligation.
+- warning: review, study, hearing, approval, or documentation burden.
+- high: hard constraint likely to materially affect layout, cost, or schedule.
+- fatal: explicit prohibition or clear impossibility only.
+
+Set requires_human_review to true for every requirement. If the sections do not
+contain any supportable permitting requirements, return an empty requirements array.
+"""
 
 
 class RequirementExtractor(Protocol):
@@ -20,6 +53,84 @@ class RequirementExtractor(Protocol):
 
     def extract(self, sections: Sequence[RetrievedSection]) -> list[dict[str, Any]]:
         """Return raw structured requirements."""
+
+
+def build_requirement_extractor(settings: Settings) -> RequirementExtractor:
+    """Choose the configured extraction provider.
+
+    ``auto`` is the normal product mode: use OpenAI when ``OPENAI_API_KEY`` is
+    configured, otherwise keep the app runnable with the deterministic local
+    extractor. Tests set ``document_extractor_provider=heuristic`` so they never
+    call the network through a developer's real ``.env`` file.
+    """
+    provider = settings.document_extractor_provider.strip().lower()
+    if provider == "heuristic":
+        return HeuristicRequirementExtractor()
+    if provider == "openai":
+        if not settings.openai_api_key:
+            raise TransientAnalysisError(
+                "OpenAI document extraction is configured, but OPENAI_API_KEY is missing."
+            )
+        return OpenAIRequirementExtractor(
+            api_key=settings.openai_api_key,
+            model=settings.openai_document_model,
+            timeout_seconds=settings.openai_request_timeout_seconds,
+        )
+    if provider == "auto":
+        if settings.openai_api_key:
+            return OpenAIRequirementExtractor(
+                api_key=settings.openai_api_key,
+                model=settings.openai_document_model,
+                timeout_seconds=settings.openai_request_timeout_seconds,
+            )
+        return HeuristicRequirementExtractor()
+    raise InvalidModelOutputError(
+        "DOCUMENT_EXTRACTOR_PROVIDER must be one of: auto, openai, heuristic."
+    )
+
+
+class OpenAIRequirementExtractor:
+    """Extract requirements with OpenAI structured outputs."""
+
+    def __init__(self, *, api_key: str, model: str, timeout_seconds: float) -> None:
+        self._api_key = api_key
+        self._model = model
+        self._timeout_seconds = timeout_seconds
+
+    def extract(self, sections: Sequence[RetrievedSection]) -> list[dict[str, Any]]:
+        if not sections:
+            return []
+
+        payload = {
+            "model": self._model,
+            "temperature": 0,
+            "messages": [
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": _sections_prompt(sections)},
+            ],
+            "response_format": _response_format_schema(),
+        }
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            with httpx.Client(timeout=self._timeout_seconds) as client:
+                response = client.post(OPENAI_CHAT_COMPLETIONS_URL, json=payload, headers=headers)
+        except httpx.TimeoutException as exc:
+            raise TransientAnalysisError("OpenAI requirement extraction timed out.") from exc
+        except httpx.HTTPError as exc:
+            raise TransientAnalysisError("OpenAI requirement extraction failed.") from exc
+
+        if response.status_code == 429 or response.status_code >= 500:
+            raise TransientAnalysisError(
+                "OpenAI requirement extraction is temporarily unavailable."
+            )
+        if response.status_code >= 400:
+            raise InvalidModelOutputError("OpenAI requirement extraction request was rejected.")
+
+        return dedupe_requirements(_requirements_from_response(response))
 
 
 class HeuristicRequirementExtractor:
@@ -231,6 +342,132 @@ def dedupe_requirements(requirements: list[dict[str, Any]]) -> list[dict[str, An
         seen.add(key)
         deduped.append(requirement)
     return deduped
+
+
+def _sections_prompt(sections: Sequence[RetrievedSection]) -> str:
+    lines = [
+        "Extract permitting requirements from these retrieved zoning/permitting sections.",
+        "Use the page number from each section in citations.",
+    ]
+    for index, section in enumerate(sections, start=1):
+        heading = section.section_heading or "Untitled section"
+        matched_terms = ", ".join(section.matched_terms) if section.matched_terms else "none"
+        lines.extend(
+            [
+                "",
+                f"SECTION {index}",
+                f"page_number: {section.page_number}",
+                f"section_heading: {heading}",
+                f"matched_terms: {matched_terms}",
+                "text:",
+                section.text,
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _response_format_schema() -> dict[str, Any]:
+    requirement_categories = [category.value for category in RequirementCategory]
+    severities = [severity.value for severity in FindingSeverity]
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "permitting_requirements",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "requirements": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "category": {"type": "string", "enum": requirement_categories},
+                                "title": {"type": "string"},
+                                "description": {"type": "string"},
+                                "value": {"type": ["string", "null"]},
+                                "severity": {"type": "string", "enum": severities},
+                                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                                "requires_human_review": {"type": "boolean"},
+                                "evidence": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "additionalProperties": False,
+                                        "properties": {
+                                            "document_id": {"type": "string"},
+                                            "document_name": {"type": "string"},
+                                            "page_number": {"type": "integer", "minimum": 1},
+                                            "section_name": {"type": ["string", "null"]},
+                                            "excerpt": {"type": "string"},
+                                        },
+                                        "required": [
+                                            "document_id",
+                                            "document_name",
+                                            "page_number",
+                                            "section_name",
+                                            "excerpt",
+                                        ],
+                                    },
+                                },
+                            },
+                            "required": [
+                                "category",
+                                "title",
+                                "description",
+                                "value",
+                                "severity",
+                                "confidence",
+                                "requires_human_review",
+                                "evidence",
+                            ],
+                        },
+                    }
+                },
+                "required": ["requirements"],
+            },
+        },
+    }
+
+
+def _requirements_from_response(response: httpx.Response) -> list[dict[str, Any]]:
+    body: Any = response.json()
+    if not isinstance(body, dict):
+        raise InvalidModelOutputError("OpenAI returned an unexpected response.")
+
+    choices = body.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise InvalidModelOutputError("OpenAI returned no extraction choices.")
+
+    first_choice = choices[0]
+    if not isinstance(first_choice, dict):
+        raise InvalidModelOutputError("OpenAI returned an invalid extraction choice.")
+
+    message = first_choice.get("message")
+    if not isinstance(message, dict):
+        raise InvalidModelOutputError("OpenAI returned an invalid extraction message.")
+    if message.get("refusal"):
+        raise InvalidModelOutputError("OpenAI refused to extract permitting requirements.")
+
+    content = message.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise InvalidModelOutputError("OpenAI returned an empty extraction response.")
+
+    try:
+        parsed: Any = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise InvalidModelOutputError("OpenAI returned invalid extraction JSON.") from exc
+
+    if not isinstance(parsed, dict):
+        raise InvalidModelOutputError("OpenAI extraction JSON must be an object.")
+    requirements = parsed.get("requirements")
+    if not isinstance(requirements, list):
+        raise InvalidModelOutputError("OpenAI extraction JSON must include requirements.")
+    if not all(isinstance(requirement, dict) for requirement in requirements):
+        raise InvalidModelOutputError("OpenAI requirements must be objects.")
+    return requirements
 
 
 def _sentence_containing(text: str, needle: str) -> str | None:
